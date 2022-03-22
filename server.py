@@ -54,14 +54,14 @@ class Server(object):
                 conn = self.connections[client_id].conn
                 data_len = struct.unpack('i', conn.recv(4))[0]
                 data = conn.recv(data_len)
-                data_json = json.loads(data.decode())
-                target = data_json['target']
-                text = data_json['text']
+                data_dict = json.loads(data.decode())
+                target = data_dict['target']
+                del data_dict['target']
                 conn = self.connections[target].conn
                 conn.send(struct.pack('i', 1))
-                text = text.encode()
-                conn.send(struct.pack('i', len(text)))
-                conn.send(text)
+                data_json = json.dumps(data_dict)
+                conn.send(struct.pack('i', len(data_json)))
+                conn.send(data_json.encode())
         except:
             del self.connections[client_id]
             print('[-] Connection closed: {} ({})'.format(hostname, client_id))

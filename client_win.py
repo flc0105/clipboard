@@ -1,11 +1,13 @@
 # coding=utf-8
 import json
+import os
 import pickle
 import re
 import socket
 import struct
 import sys
 import threading
+import time
 import webbrowser
 from tkinter import *
 from tkinter import ttk, messagebox, Menu
@@ -48,11 +50,33 @@ class Client(object):
                 size -= len(buf)
                 data += buf
             if code:
-                text = str(data.decode())
+                data_dict = json.loads(data.decode())
+                sender = data_dict['sender']
+                text = data_dict['text']
                 pyperclip.copy(text)
-                item = self.tree_text.insert('', END, value=[text], text=truncate(text))
+                date = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                data_dict['date'] = date
+                item = self.tree_text.insert('', END, value=[sender, date, text], text=truncate(text))
                 self.tree_text.move(item, '', 0)
                 self.tree_text.selection_set(item)
+                try:
+                    data = []
+                    if not os.path.isfile('clipboard.txt'):
+                        f = open('clipboard.txt', 'wb')
+                        f.write('[]'.encode())
+                        f.close()
+                    f = open('clipboard.txt', 'rb')
+                    try:
+                        data = json.load(f)
+                    except json.decoder.JSONDecodeError as e:
+                        messagebox.showerror('clipboard', str(e))
+                    data.append(json.dumps(data_dict))
+                    f.close()
+                    f = open('clipboard.txt', 'wb')
+                    f.write(json.dumps(data).encode())
+                    f.close()
+                except Exception as e:
+                    messagebox.showerror('clipboard', str(e))
                 if re.match('^https?://\\w.+$', text):
                     if messagebox.askyesno(message='Open this link in web browser?'):
                         webbrowser.open(text)
@@ -69,7 +93,11 @@ class Client(object):
             return
         uuid = uuid[0]
         clipboard = pyperclip.paste()
+        if not clipboard.strip():
+            messagebox.showinfo('clipboard', 'Empty clipboard')
+            return
         data = {
+            'sender': socket.gethostname(),
             'target': uuid,
             'text': clipboard
         }
@@ -81,16 +109,20 @@ class Client(object):
     def main(self):
         frame1 = Frame()
         frame1.pack(side='left', fill=Y)
-        lbl = Label(frame1, text='Devices')
-        lbl.pack()
-        self.tree_device = ttk.Treeview(frame1, show='tree')
+        self.tree_device = ttk.Treeview(frame1, style='myStyle1.Treeview')
+        ttk.Style().layout('myStyle1.Treeview', [('myStyle1.Treeview.treearea', {'sticky': 'nswe'})])
+        self.tree_device.heading('#0', text='Devices')
+        self.tree_device.column('#0', minwidth=201)
+        self.tree_device.bind('<Button-1>', self.handle_click)
         self.tree_device.pack(fill=Y, expand=TRUE)
         button = ttk.Button(frame1, text='Send', command=self.send)
+        ttk.Style().configure('TButton', background='white')
         button.pack(fill=X)
         frame2 = Frame()
         frame2.pack(side='right', fill=BOTH, expand=TRUE)
-        ttk.Style().configure('myStyle1.Treeview', rowheight=40, font=('宋体', 9))
-        self.tree_text = ttk.Treeview(frame2, show='tree', style='myStyle1.Treeview')
+        self.tree_text = ttk.Treeview(frame2, show='tree', style='myStyle2.Treeview')
+        ttk.Style().configure('myStyle2.Treeview', rowheight=44, font=('宋体', 9))
+        ttk.Style().layout('myStyle2.Treeview', [('myStyle2.Treeview.treearea', {'sticky': 'nswe'})])
         self.tree_text.bind('<Double-1>', self.show_detail)
         self.tree_text.bind('<Button-3>', self.popup)
         self.tree_text.pack(fill=BOTH, expand=TRUE)
@@ -100,8 +132,27 @@ class Client(object):
         root.title('clipboard')
         root.geometry('600x300')
         root.eval('tk::PlaceWindow . center')
+        try:
+            if not os.path.isfile('clipboard.txt'):
+                f = open('clipboard.txt', 'wb')
+                f.write('[]'.encode())
+                f.close()
+            f = open('clipboard.txt', 'rb')
+            data = json.load(f)
+            for i in reversed(data):
+                data_json = json.loads(i)
+                self.tree_text.insert('', END,
+                                      values=[data_json['sender'], data_json['date'], data_json['text']],
+                                      text=truncate(data_json['text']))
+            f.close()
+        except Exception as e:
+            messagebox.showerror('clipboard', str(e))
         root.after_idle(self.connect)
         root.mainloop()
+
+    def handle_click(self, event):
+        if self.tree_device.identify_region(event.x, event.y) == 'separator':
+            return 'break'
 
     def popup(self, event):
         iid = self.tree_text.identify_row(event.y)
@@ -118,19 +169,32 @@ class Client(object):
 
     def delete(self):
         item = self.tree_text.selection()
+        index = self.tree_text.index(item)
+        try:
+            f = open('clipboard.txt', 'rb')
+            data = json.load(f)
+            data.remove(list(reversed(data))[index])
+            f.close()
+            f = open('clipboard.txt', 'wb')
+            f.write(json.dumps(data).encode())
+            f.close()
+        except Exception as e:
+            messagebox.showerror('clipboard', str(e))
         self.tree_text.delete(item)
 
     def show_detail(self, event):
         if not self.tree_text.identify_row(event.y):
             return
         item = self.tree_text.selection()[0]
-        value = self.tree_text.item(item, 'value')[0]
+        value = self.tree_text.item(item, 'value')
         top = Toplevel(root)
         top.geometry('%dx%d+%d+%d' % (400, 200, root.winfo_x() + 100, root.winfo_y() + 50))
+        top.title(value[0] + ' ' + value[1])
         top.focus()
         text = Text(top)
+        text.configure(borderwidth=0)
         text.pack(fill=BOTH, expand=TRUE)
-        text.insert(1.0, value)
+        text.insert(1.0, value[2])
 
 
 def truncate(string):
