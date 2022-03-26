@@ -45,14 +45,14 @@ class TcpClient:
 
     def __GetHeadBytes(self, length, sendClientId, sendGroupId) -> bytes:
         head = DdonSocketHead.Head(None)
-        head.ClientId = str(self.clientId)
-        head.GroupId = str(self.clientId)
-        head.Length = length
-        head.Mode = 1
-        head.OpCode = 10002
+        head.ClientId = str(self.clientId) # 无所谓
+        # head.GroupId = str(self.clientId) # 无所谓
+        head.Length = length # 消息长度
+        # head.Mode = 1
+        head.OpCode = 10002 # 用于消息转发
         head.SendClient = sendClientId
-        head.SendGroup = '00000000-0000-0000-0000-000000000000'
-        head.Type = 1
+        # head.SendGroup = '00000000-0000-0000-0000-000000000000'
+        head.Type = 1 # 传输文本
         return json.dumps(head.__dict__).encode('utf-8')
 
     def __MergeBytes(left, byte1: bytes, byte2: bytes):
