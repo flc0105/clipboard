@@ -1,13 +1,11 @@
 # coding=utf-8
 import socket
 import threading
-import uuid
 
 from tcpsocket import TcpSocket
 
 
 class Connection:
-
     def __init__(self, client_id, client_name, group_id, conn):
         self.client_id = client_id
         self.client_name = client_name
@@ -31,23 +29,50 @@ class Server(object):
             threading.Thread(target=self.handle_clients, args=(conn,)).start()
 
     def handle_clients(self, conn):
-        client_id = str(uuid.uuid4())
+        client_id = None
+        group_id = None
+        client_info = None
         try:
             client_info = TcpSocket.recv_dict(conn)
-            print('[+] Connection established: {0} {1}'.format(client_id, client_info))
+            print('[+] Connection established: ' + str(client_info))
+            client_id = client_info['client_id']
             client_name = client_info['client_name']
             group_id = client_info['group_id']
             self.connections[client_id] = (Connection(client_id, client_name, group_id, conn))
+            self.send_list(group_id)
             while True:
                 data = TcpSocket.recv_dict(conn)
-                for connection in self.connections.values():
-                    if connection.group_id == group_id and connection.client_id != client_id:
-                        TcpSocket.send_dict(connection.conn, data)
+                if data['msg_type'] == 'public':
+                    self.send_public(client_id, group_id, data)
+                    continue
+                if data['msg_type'] == 'private':
+                    self.send_private(data)
+                    continue
         except ConnectionResetError:
             del self.connections[client_id]
-            print('[-] Connection closed: ' + client_id)
+            self.send_list(group_id)
+            print('[-] Connection closed: ' + str(client_info))
         except Exception as e:
             print('[-] Error: ' + str(e))
+
+    def send_list(self, group_id):
+        client_dict = {}
+        for connection in self.connections.values():
+            if connection.group_id == group_id:
+                client_dict[connection.client_id] = connection.client_name
+        for connection in self.connections.values():
+            TcpSocket.send_dict(connection.conn, {'msg_type': 'client_dict', 'msg': client_dict})
+
+    def send_public(self, client_id, group_id, data):
+        for connection in self.connections.values():
+            if connection.group_id == group_id and connection.client_id != client_id:
+                TcpSocket.send_dict(connection.conn,
+                                    {'msg_type': 'text', 'msg': {'sender': data['sender'], 'text': data['text']}})
+
+    def send_private(self, data):
+        target_id = data['target']
+        target_connection = self.connections[target_id].conn
+        TcpSocket.send_dict(target_connection, {'msg_type': 'text', 'msg': data})
 
 
 server = Server()

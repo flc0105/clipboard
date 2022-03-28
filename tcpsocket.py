@@ -5,17 +5,24 @@ import struct
 
 class TcpSocket:
     @staticmethod
-    def send_dict(s, data_dict):
-        data_json = json.dumps(data_dict)
-        s.send(struct.pack('i', len(data_json)))
-        s.send(data_json.encode())
+    def send(s, data):
+        s.send(struct.pack('i', len(data)))
+        s.send(data.encode())
 
     @staticmethod
-    def recv_dict(s):
+    def recv(s):
         size = struct.unpack('i', s.recv(4))[0]
         data = b''
         while size:
             buf = s.recv(size)
             size -= len(buf)
             data += buf
-        return json.loads(data.decode())
+        return data.decode()
+
+    @staticmethod
+    def send_dict(s, data_dict):
+        TcpSocket.send(s, json.dumps(data_dict))
+
+    @staticmethod
+    def recv_dict(s):
+        return json.loads(TcpSocket.recv(s))
