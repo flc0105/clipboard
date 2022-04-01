@@ -2,5 +2,7 @@
   "server_ip": "127.0.0.1",
   "server_port": "8888",
   "client_name": "",
-  "group_id": "1"
+  "group_id": "1",
+  "interval": 1,
+  "auto_sync": 1
 }
