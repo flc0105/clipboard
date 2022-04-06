@@ -1,15 +1,22 @@
 # coding=utf-8
+import hashlib
 import json
 import os
 import socket
+import struct
 import sys
 import threading
 import time
 import uuid
+from io import BytesIO
 
 import pyperclip
+import win32clipboard
+from PIL import ImageGrab, Image, ImageFile
 
 import client
+
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 class ClipboardClient(object):
@@ -20,8 +27,10 @@ class ClipboardClient(object):
         self.group_id = None
         self.interval = 1
         self.auto_sync = None
+        self.save_image = None
         self.socket = None
         self.recent_text = None
+        self.image_hash = None
         self.clients = {}
         self.client_id = str(uuid.uuid4())
 
@@ -42,6 +51,7 @@ class ClipboardClient(object):
             if config['interval']:
                 self.interval = config['interval']
             self.auto_sync = config['auto_sync']
+            self.save_image = config['save_image']
         except Exception as e:
             print('[-] Failed to load configuration: ' + str(e))
             sys.exit(0)
@@ -108,30 +118,71 @@ class ClipboardClient(object):
                     self.recent_text = text
                     pyperclip.copy(text)
                     print('[+] {0} Clipboard synced from {1}: {2}'.format(self.get_time(), sender, text))
+                elif data['msg_type'] == 'image':
+                    image_bytes = self.socket.recv_bytes()
+                    print('[+] {0} You received an image from {1}'.format(self.get_time(), data['sender']))
+                    image = Image.open(image_bytes)
+                    image.show()
+                    self.image_hash = hashlib.sha256(image.tobytes()).hexdigest()
+                    b = BytesIO()
+                    image.save(b, 'BMP')
+                    if self.save_image:
+                        image.save(str(time.strftime('%Y%m%d%H%M%S', time.localtime())) + '.png', 'PNG')
+                    win32clipboard.OpenClipboard()
+                    win32clipboard.EmptyClipboard()
+                    win32clipboard.SetClipboardData(win32clipboard.CF_DIB, b.getvalue()[14:])
+                    win32clipboard.CloseClipboard()
                 elif data['msg_type'] == 'client_dict':
                     self.clients = data['msg']
                     del self.clients[self.client_id]
-            except ConnectionResetError:
+            except (ConnectionResetError, struct.error) as e:
+                print('[-] Disconnected: ' + str(e))
                 sys.exit(0)
-            except Exception as e:
-                print('[-] Error while receiving data: ' + str(e))
+            except Exception as exception:
+                print('[-] Error while receiving data: ' + str(exception))
+                time.sleep(2)
 
     def monitor_clipboard(self, send_type, target_id=None):
         while True:
             try:
-                clipboard_text = pyperclip.paste()
-                if clipboard_text != '' and clipboard_text != self.recent_text:
-                    self.recent_text = clipboard_text
-                    print('[+] {0} Clipboard change detected: {1}'.format(self.get_time(), self.recent_text))
-                    if send_type == 'public':
-                        self.send_public()
-                    elif send_type == 'private':
-                        self.send_private(target_id)
+                im = ImageGrab.grabclipboard()
+                if im is None:
+                    clipboard_text = pyperclip.paste()
+                    if clipboard_text != '' and clipboard_text != self.recent_text:
+                        self.recent_text = clipboard_text
+                        print('[+] {0} Clipboard change detected: {1}'.format(self.get_time(), self.recent_text))
+                        if send_type == 'public':
+                            self.send_public()
+                        elif send_type == 'private':
+                            self.send_private(target_id)
+                elif isinstance(im, Image.Image):
+                    image_hash = hashlib.sha256(im.tobytes()).hexdigest()
+                    if image_hash != self.image_hash:
+                        self.image_hash = image_hash
+                        print('[+] {0} You copied an image'.format(self.get_time()))
+                        self.socket.send_dict({'msg_type': 'image', 'sender': self.client_name})
+                        b = BytesIO()
+                        im.save(b, 'BMP')
+                        self.socket.send_bytes(b)
+                else:
+                    filename = im[0]
+                    if os.path.isfile(filename):
+                        try:
+                            image = Image.open(filename)
+                            b = BytesIO()
+                            image.save(b, 'BMP')
+                            win32clipboard.OpenClipboard()
+                            win32clipboard.EmptyClipboard()
+                            win32clipboard.SetClipboardData(win32clipboard.CF_DIB, b.getvalue()[14:])
+                            win32clipboard.CloseClipboard()
+                        except IOError:
+                            pass
                 time.sleep(self.interval)
             except KeyboardInterrupt:
                 break
             except Exception as e:
                 print('[-] Error while monitoring clipboard: ' + str(e))
+                time.sleep(2)
 
     def send_public(self):
         try:

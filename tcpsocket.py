@@ -2,6 +2,7 @@
 import json
 import socket
 import struct
+from io import BytesIO
 
 
 class TcpSocket:
@@ -27,3 +28,21 @@ class TcpSocket:
 
     def recv_dict(self):
         return json.loads(self.recv())
+
+    def send_bytes(self, b):
+        self.socket.send(struct.pack('i', b.getbuffer().nbytes))
+        f = BytesIO(b.getvalue())
+        while True:
+            data = f.read(1024)
+            if not data:
+                break
+            self.socket.send(data)
+
+    def recv_bytes(self):
+        size = struct.unpack('i', self.socket.recv(4))[0]
+        b = BytesIO()
+        while size:
+            packet = self.socket.recv(size)
+            size -= len(packet)
+            b.write(packet)
+        return b

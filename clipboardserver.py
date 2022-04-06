@@ -1,6 +1,7 @@
 # coding=utf-8
 import socket
 import threading
+import time
 
 import server
 
@@ -29,21 +30,28 @@ class ClipboardServer(object):
             threading.Thread(target=self.recv, args=(connection,)).start()
 
     def recv(self, connection):
-        try:
-            while True:
+        while True:
+            try:
                 data = connection.recv_dict()
+                print(data)
                 if data['msg_type'] == 'public':
                     self.send_public(connection.client_id, connection.group_id, data)
                     continue
                 if data['msg_type'] == 'private':
                     self.send_private(data)
                     continue
-        except ConnectionResetError:
-            del self.connections[connection.client_id]
-            self.send_list(connection.group_id)
-            print('[+] Connection closed: ' + str(connection.client_id))
-        except Exception as e:
-            print('[-] Error: ' + str(e))
+                if data['msg_type'] == 'image':
+                    image = connection.recv_bytes()
+                    self.send_image(connection.client_id, connection.group_id, data['sender'], image)
+                    continue
+            except ConnectionResetError:
+                del self.connections[connection.client_id]
+                self.send_list(connection.group_id)
+                print('[+] Connection closed: ' + str(connection.client_id))
+                break
+            except Exception as e:
+                print('[-] Error: ' + str(e))
+                time.sleep(2)
 
     def send_list(self, group_id):
         client_dict = {}
@@ -63,6 +71,12 @@ class ClipboardServer(object):
         connection = self.connections[target_id]
         connection.send_dict({'msg_type': 'text', 'msg': data})
 
+    def send_image(self, client_id, group_id, sender, data):
+        for connection in self.connections.values():
+            if connection.group_id == group_id and connection.client_id != client_id:
+                connection.send_dict({'msg_type': 'image', 'sender': sender})
+                connection.send_bytes(data)
+
 
 clipboard_server = ClipboardServer()
-clipboard_server.accept()
+threading.Thread(target=clipboard_server.accept).start()

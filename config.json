@@ -4,5 +4,6 @@
   "client_name": "",
   "group_id": "1",
   "interval": 1,
-  "auto_sync": 1
+  "auto_sync": 1,
+  "save_image": 0
 }
